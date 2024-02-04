@@ -44,10 +44,56 @@ uint8_t sid_hr, sid_mn, sid_sec;
 //uint8_t GMTversion;
 float ssec;
 
+
+struct BSTAR {
+  char sname[20];
+  char con[4];
+  uint8_t hr;
+  uint8_t mn;
+};
+
+// bright stars
+#define NUMSTAR 23
+struct BSTAR bstar[NUMSTAR] =   
+{
+ { "B Cas           " , "Cas",  0, 10 },
+ { "B And        M31" , "And",  1, 10 },
+ { "A Aries      M33" , "Ari",  2,  8 },
+ { "Mirphak   x&hPer" , "Per",  3, 24 },
+ { "Aldebaran    M45" , "Tau",  4, 35 },
+ { "Rigel        B33" , "Ori",  5, 14 },
+ { "Capella   M1 M37" , "Aur",  5, 16 },
+ { "Betelgeuse   M42" , "Ori",  5, 55 },
+ { "Sirius          " , "Cma",  6, 45 },
+ { "CastorPollux M35" , "Gem",  7, 34 },
+ { "Procyon         " , "Cmi",  7, 39 },
+ { "B Cancer     M44" , "Cnc",  8, 15 },
+ { "Regulus         " , "Leo", 10,  8 },
+ { "Denebola        " , "Leo", 11, 50 },
+ { "Spica           " , "Vir", 13, 25 }, 
+ { "Alkaid       M51" , "UMa", 13, 47 },
+ { "Arcturus   M5 M3" , "Boo", 14, 15 },
+ { "Antares         " , "Sco", 16, 29 },
+ { "B Her        M13" , "Her", 16, 30 },
+ { "Vega         M57" , "Lyr", 18, 36 },
+ { "Altair       M27" , "Aql", 19, 50 },
+ { "Deneb           " , "Cyg", 20, 41 },
+ { "Markab          " , "Peg", 23, 01 }
+};
+
+
 void setup() {
 
+  delay(1000);
   i2init();
   Serial.begin(9600);
+
+  LCD.InitLCD();
+  LCD.setFont(SmallFont);
+  LCD.clrScr();
+  LCD.print((char *)"Hello",LEFT,ROW0);
+  delay(1000);
+  LCD.clrRow(0);  LCD.clrRow(1);
 
 }
 
@@ -102,8 +148,8 @@ uint8_t h,m,s;
    diff =  t1 - t2;   
    
    diff += (float)diff * SFACTOR0;
-Serial.print("Base 2035/01/01 ");
-Serial.print( diff );   Serial.write(' ');   
+   Serial.print("Base 2035/01/01 ");
+   Serial.print( diff );   Serial.write(' ');   
 
    GMT_eq = DateTime( 2035, 1, 1, 6, 41, 56 );  // gmt sidereal time 2035/1/1
    t2 = GMT_eq.unixtime();
@@ -119,15 +165,97 @@ Serial.print( diff );   Serial.write(' ');
    Serial.print( new_time.year() );   Serial.write('/');
    Serial.print( new_time.month() );  Serial.write('/');
    Serial.print( new_time.day() );    Serial.write(' ');
-   
+
+   LCD.setFont(MediumNumbers);
    if( sid_hr < 10 ) Serial.write('0');
    Serial.print( sid_hr );  Serial.write(':');
+   LCD.printNumI(sid_hr,20,0,2,'0');
    if( sid_mn < 10 ) Serial.write('0');
    Serial.print( sid_mn );  Serial.write(':');
+   LCD.printNumI(sid_mn,50,0,2,'0');
    if( sid_sec < 10 ) Serial.write('0');
-   Serial.println( sid_sec );   
+   Serial.println( sid_sec );
+   LCD.printNumI(sid_sec,80,0,2,'0');
+   LCD.setFont(SmallFont); 
+
+   display_stars();
 }
 
+
+void display_stars( ){
+static int indx = 255;
+int i;
+int hr, mn;
+
+   hr = sid_hr + 2;  mn = sid_mn;
+   if( hr > 23 ) hr -= 24;
+   // first time
+   if( indx == 255 ){
+      for( i = 0; i < NUMSTAR; ++i ){
+         if( bstar[i].hr > hr ) break;
+         display_stars2( i );
+      }
+      indx = i;
+      // if( indx < 0 ) indx = NUMSTAR - 1;
+      if( indx >= NUMSTAR ) indx = 0;
+   }
+
+   // check if reached the next star
+   if( hr == bstar[indx].hr && mn == bstar[indx].mn ){
+      display_stars2( indx );
+      ++indx;
+      if( indx >= NUMSTAR ) indx = 0;
+   }
+ 
+}
+
+void display_stars2old( uint8_t p ){
+static char snames[20];
+static char cnames[20];
+static char temp[45];
+
+ // Serial.print( bstar[p].sname );  Serial.write(' ');
+
+  strncpy( temp,bstar[p].sname,6 );  temp[6] = 0;
+  strcat( temp, " " );
+  strcat( temp, snames );
+  strncpy( snames, temp, 18 );  snames[19] = 0;
+  LCD.print( snames, 0, ROW2 );
+
+  strncpy( temp, bstar[p].con,3 ); temp[3] = 0;
+  strcat( temp, " ");
+  strcat( temp, cnames );
+  strncpy( cnames, temp, 18);  cnames[19] = 0;
+  LCD.print( cnames, 0, ROW3 );
+  
+}
+
+void display_stars2( int8_t p ){
+static char line2[24];
+static char line3[24];
+static char line4[24];
+static char line5[24];
+static char line6[24];
+static char line7[24];
+
+   strcpy( line7, line6 );
+   strcpy( line6, line5 );
+   strcpy( line5, line4 );
+   strcpy( line4, line3 );
+   strcpy( line3, line2 );
+
+   strcpy( line2,bstar[p].con );
+   strcat( line2, " " );
+   strcat( line2, bstar[p].sname );
+
+   LCD.print( line2, 0, ROW2 );  //LCD.clrRow(2,strlen(line2)*6 );
+   LCD.print( line3, 0, ROW3 );  //LCD.clrRow(3,strlen(line3)*6 );
+   LCD.print( line4, 0, ROW4 );  //LCD.clrRow(4,strlen(line4)*6 );
+   LCD.print( line5, 0, ROW5 );  //LCD.clrRow(5,strlen(line5)*6 );
+   LCD.print( line6, 0, ROW6 );  //LCD.clrRow(6,strlen(line6)*6 );
+   LCD.print( line7, 0, ROW7 );  //LCD.clrRow(7,strlen(line7)*6 );
+  
+}
 
 /*****  extern I2C  functions needed by the OLED library  ******/
 uint8_t i2byte_count;       // avoid overfilling i2c buffer ( 32 size for pi pico ?, it is 256 it seems )
@@ -146,7 +274,7 @@ void i2start( uint8_t adr ){
 
 
 void i2send( unsigned int data ){
-  if( ++i2byte_count == 255 ){
+  if( ++i2byte_count == 253 ){
      i2stop();
      i2start( i2adr_saved ); 
   }
