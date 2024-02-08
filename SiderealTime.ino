@@ -14,6 +14,8 @@
 #include <Wire.h>
 #include <OLED1306_Basic.h>
 #include <DS3231.h>
+#include <RPi_Pico_TimerInterrupt.h>
+#include <AccelStepper.h>
 
 #define ROW0 0
 #define ROW1 8
@@ -26,6 +28,9 @@
 
   OLED1306 LCD;
   DS3231 RTC;
+  RPI_PICO_Timer ITimer0(0);
+  AccelStepper RAstep(AccelStepper::DRIVER,6,7);
+  AccelStepper DECstep(AccelStepper::DRIVER,8,9);
 
 extern unsigned char SmallFont[];
 extern unsigned char MediumNumbers[];
@@ -39,10 +44,16 @@ DateTime GMT_eq;
 DateTime today;
 
 float my_longitude = -69.524125;
-float my_latitude  = 22.22688;       // !!! bogus
+float my_latitude  = 44.44688;
 uint8_t sid_hr, sid_mn, sid_sec;
 //uint8_t GMTversion;
 //float ssec;
+//volatile long ra_steps;
+volatile uint8_t finding;      // goto started
+int new_target, old_target;
+
+
+byte onetime = 1;
 
 struct BSTAR {
   char con[4];
@@ -300,7 +311,59 @@ void setup() {
   LCD.print((char *)"Hello",LEFT,ROW0);
   delay(1000);
   LCD.clrRow(0);  LCD.clrRow(1);
+    
+  pinMode( 25, OUTPUT );
 
+  RAstep.setAcceleration( 10.0 );
+  RAstep.setMinPulseWidth( 3 );
+  RAstep.setEnablePin( 3 );
+  RAstep.setPinsInverted( 0,0,1);     // enable low
+  DECstep.setAcceleration( 10.0 );
+  DECstep.setMinPulseWidth( 3 );
+
+  DECstep.enableOutputs();
+  RAstep.enableOutputs();
+  
+  RAstep.setMaxSpeed( 999.0 );
+  DECstep.setMaxSpeed( 999.0 );
+  //RAstep.setSpeed(  3.42 );     // fake sidereal rate enabled  test
+
+
+  // moveTo( position relative to zero starting position ) for goto's
+  // move( relative to the current position );
+  // setCurrentPosition( for fixups )
+  RAstep.moveTo( -654 );
+  DECstep.moveTo( 456 );
+  finding = 1;                         // flag goto in progress, need to reset sidereal speed when done
+
+  ITimer0.attachInterruptInterval(1000, TimerHandler0);   // time in us, 1000 == 1ms
+
+}
+
+
+// keep the steppers running
+bool TimerHandler0(struct repeating_timer *t){
+  (void) t;
+  static uint8_t toggle;
+
+  DECstep.run();
+
+  // a goto clears the constant speed setting, need to set it again after a goto
+  // distanceToGo uses the old target, can't call it to see if need to call run or
+  // runSpeed.  If run is called when not goto'ing it will try to move to the old target.
+  // So need a flag ( finding ) to control what function to call.
+  if( finding ){
+     RAstep.run();
+     //DECstep.run();
+     if( RAstep.distanceToGo() == 0 /*&& DECstep.distanceToGo() == 0*/ ) RAstep.setSpeed(  0.71 ), finding = 0;
+  } 
+  else if( RAstep.runSpeed() ){
+    //++ra_steps;
+    digitalWrite( 25, toggle );
+    toggle ^= 1;
+  }
+
+  return true;
 }
 
 void loop() {
@@ -325,6 +388,33 @@ void loop() {
          }
       }
      // if( c == 'v' ) GMTversion ^= 1;    // use 2024 or 2030 as base of the sidereal calc
+   }
+
+   noInterrupts();
+   long ra = RAstep.currentPosition();
+   long dec = DECstep.currentPosition();
+   interrupts();
+   Serial.write('d'); Serial.print( dec );  Serial.write(' ');
+   Serial.write('r'); Serial.write('a'); Serial.print( ra ); Serial.write(' ');
+
+   // fake goto the current target
+   if( new_target != old_target ){
+      old_target = new_target;
+
+      // abs macro bugs.....?
+      long stp = (long)bstar[new_target].dd;
+      if( stp < 0 ) stp = -stp;
+      stp *= 60L;
+      stp += (long)bstar[new_target].dm;
+      // long stp = abs( (long)bstar[new_target].dd ) * 60 + (long)bstar[new_target].dm;
+      if( bstar[new_target].dd < 0 ) stp = -stp;
+      
+      noInterrupts();
+      RAstep.moveTo( 0 );        // just crossed the meridian
+      DECstep.moveTo( stp );
+      finding = 1;               // important to set the moving flag
+      interrupts();
+      Serial.println( stp );
    }
    
 }
@@ -388,15 +478,16 @@ uint8_t h,m,s;
 }
 
 
+
 void display_stars( ){
-static int indx = 255;
+static int indx = 2555;
 int i;
 int hr, mn;
 
    hr = sid_hr;  mn = sid_mn;
    if( hr > 23 ) hr -= 24;
    // first time
-   if( indx == 255 ){
+   if( indx == 2555 ){
       for( i = 0; i < NUMSTAR; ++i ){
          if( bstar[i].hr > hr ) break;
          if( bstar[i].hr == hr && bstar[i].mn > mn ) break;
@@ -411,6 +502,7 @@ int hr, mn;
    // check if reached the next star
    if( hr == bstar[indx].hr && mn == bstar[indx].mn ){
       display_stars2( indx );
+      new_target = indx;
       ++indx;
       if( indx >= NUMSTAR ) indx = 0;
    }
